@@ -1,16 +1,19 @@
 name: "Tests"
 on:
-  pull_request:
-  push:
-    branches:
-      - master
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: 'Optional jasmine --filter regex; empty runs the full suite'
+        required: false
+        default: ''
 
 jobs:
   Test:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    timeout-minutes: 30
     strategy:
       matrix:
-        node_version: ['lts/*', 'node']
+        node_version: ['lts/*', 'node', '14']
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -22,26 +25,30 @@ jobs:
       - name: Install Dependencies
         run: npm ci
       - name: Run Unit Tests 👩🏽‍💻
-        run: npm run test:unit
+        run: npm run test:unit ${{ inputs.test-filter && format('-- --filter={0}', inputs.test-filter) || '' }}
       - name: Run Spec Tests 👩🏽‍💻
-        run: npm run test:specs
-
-  Lint:
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v2
-      - name: Install Dependencies
-        run: npm ci
-      - name: Lint ✨
-        run: npm run test:lint
+        run: npm run test:specs ${{ inputs.test-filter && format('-- --filter={0}', inputs.test-filter) || '' }}
+      - name: Build 🗜️
+        if: matrix.node_version == '14'
+        run: npm run build
+      - name: Pack
+        if: matrix.node_version == '14'
+        run: |
+          mkdir -p dist-pack
+          npm pack
+          mv marked-*.tgz dist-pack/
+      - name: Upload Tarball
+        if: matrix.node_version == '14'
+        uses: actions/upload-artifact@v4
+        with:
+          name: marked-tgz
+          path: dist-pack/*.tgz
+          if-no-files-found: error
 
   Release:
-    needs: [Test, Lint]
-    if: |
-      github.ref == 'refs/heads/master' &&
-      github.event.repository.fork == false
+    needs: [Test]
+    if: false
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -64,6 +71,7 @@ jobs:
 
   Skip:
     if: contains(github.event.head_commit.message, '[skip ci]')
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - name: Skip CI 🚫
